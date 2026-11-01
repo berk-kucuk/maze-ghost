@@ -1,0 +1,85 @@
+# Maintainer: berkkucukk <berkkucukk@proton.me>
+#
+# LOCAL-BUILD PKGBUILD — see ../build-pkg.sh, which writes `pkgver` and drops
+# `maze-ghost-$pkgver.tar.gz` next to this file before invoking makepkg.
+
+pkgname=maze-ghost
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Maze Ghost — a login that keeps nothing: memory-only home, every connection through Tor"
+arch=('any')
+url="https://mazelinux.berkkucukk.com.tr"
+license=('GPL3')
+install=maze-ghost.install
+
+depends=(
+    'maze-python'   # the welcome window: /opt/maze/venv with PyQt6
+    'tor'           # the Ghost session's own Tor (maze-ghost-tor.service)
+    'nftables'      # the Tor-only firewall for the ghost account
+    'util-linux'    # mount, findmnt, mountpoint
+    'procps-ng'     # pkill
+    'shadow'        # useradd / userdel / passwd -d
+    'polkit'
+    'systemd'
+)
+optdepends=(
+    'maze-capsule: keep chosen files between Ghost sessions, encrypted'
+    'maze-cloak: a new MAC address at every Ghost login'
+    'networkmanager: forget Wi-Fi networks saved in a Ghost session'
+)
+backup=('etc/security/limits.d/50-maze-ghost.conf')
+makedepends=('imagemagick')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    cd "$srcdir/maze-ghost-${pkgver}"
+
+    # The welcome window.
+    install -dm755 "$pkgdir/opt/maze-ghost"
+    cp -r mazeghost main.py "$pkgdir/opt/maze-ghost/"
+    install -m644 MAZE-GHOST.png maze-ghost-logo.svg "$pkgdir/opt/maze-ghost/"
+    install -Dm755 /dev/stdin "$pkgdir/usr/bin/maze-ghost-welcome" << 'LAUNCHER'
+#!/usr/bin/env bash
+exec /opt/maze/venv/bin/python3 -P /opt/maze-ghost/main.py "$@"
+LAUNCHER
+
+    # The session machinery (run as root by systemd, never by the user).
+    install -dm755 "$pkgdir/usr/lib/maze-ghost"
+    install -m755 system/ghost-firewall system/ghost-session-start system/ghost-session-stop \
+        "$pkgdir/usr/lib/maze-ghost/"
+    install -dm755 "$pkgdir/usr/lib/systemd/system"
+    install -m644 system/maze-ghost-firewall.service system/maze-ghost-cleanup.service \
+        system/maze-ghost-tor.service "$pkgdir/usr/lib/systemd/system/"
+    install -Dm644 system/50-maze-ghost-logind.conf \
+        "$pkgdir/usr/lib/systemd/logind.conf.d/50-maze-ghost.conf"
+    install -Dm644 system/50-maze-ghost-limits.conf \
+        "$pkgdir/etc/security/limits.d/50-maze-ghost.conf"
+    install -Dm644 system/49-maze-ghost.rules \
+        "$pkgdir/usr/share/polkit-1/rules.d/49-maze-ghost.rules"
+    install -Dm644 system/torrc "$pkgdir/usr/share/maze-ghost/torrc"
+    install -dm755 "$pkgdir/etc/maze-ghost/torrc.d"
+
+    # What a Ghost home starts with, on top of /etc/skel.
+    install -dm755 "$pkgdir/usr/share/maze-ghost"
+    cp -a skel "$pkgdir/usr/share/maze-ghost/skel"
+    find "$pkgdir/usr/share/maze-ghost/skel" -type f -exec chmod 644 {} +
+
+    # The face SDDM shows for the Ghost account.
+    install -dm755 "$pkgdir/usr/share/sddm/faces"
+    magick MAZE-GHOST.png -resize 256x256 "$pkgdir/usr/share/sddm/faces/ghost.face.icon" \
+        2>/dev/null || install -m644 MAZE-GHOST.png "$pkgdir/usr/share/sddm/faces/ghost.face.icon"
+
+    install -Dm644 maze-ghost-logo.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/maze-ghost.svg"
+    for size in 16 22 24 32 48 64 128 256; do
+        install -dm755 "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps"
+        magick MAZE-GHOST.png -resize "${size}x${size}" \
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/maze-ghost.png" \
+            2>/dev/null || install -m644 MAZE-GHOST.png \
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/maze-ghost.png"
+    done
+
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

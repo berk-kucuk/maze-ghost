@@ -1,0 +1,14 @@
+// Maze Ghost: hibernation writes the whole of memory — the Ghost session's
+// home included — to disk. The Ghost account may suspend, not hibernate.
+polkit.addRule(function (action, subject) {
+    if (subject.user !== "ghost") {
+        return polkit.Result.NOT_HANDLED;
+    }
+    var id = action.id;
+    if (id.indexOf("org.freedesktop.login1.hibernate") === 0 ||
+        id.indexOf("org.freedesktop.login1.hybrid-sleep") === 0 ||
+        id.indexOf("org.freedesktop.login1.suspend-then-hibernate") === 0) {
+        return polkit.Result.NO;
+    }
+    return polkit.Result.NOT_HANDLED;
+});

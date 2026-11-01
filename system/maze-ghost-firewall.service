@@ -1,0 +1,18 @@
+[Unit]
+Description=Maze Ghost — Tor-only firewall for the Ghost account
+Documentation=file:///usr/share/doc/maze-ghost/README.md
+# Loaded before anyone can log in, and before the network comes up.
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target systemd-user-sessions.service shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/maze-ghost/ghost-firewall start
+ExecStop=/usr/lib/maze-ghost/ghost-firewall stop
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,83 @@
+#!/bin/bash
+# maze-ghost-firewall — the Ghost account may reach the internet only through Tor.
+#
+#   ghost-firewall start   load the rules (at boot, before anyone can log in)
+#   ghost-firewall stop    remove them
+#   ghost-firewall render UID   print the rules for UID (used by the tests)
+#
+# For the ghost uid, and only for it:
+#   * every DNS query, to any address, goes to the Ghost Tor's DNSPort;
+#   * every other outgoing TCP connection goes to its TransPort;
+#   * on loopback it may reach those Tor ports and nothing else — not CUPS,
+#     not a local proxy that would go out directly, not another user's
+#     development server;
+#   * UDP (other than DNS), ICMP and all of IPv6 are dropped.
+# A program in the Ghost session that listens on localhost TCP can answer, but
+# Ghost programs cannot open new loopback connections other than to Tor —
+# which also rules out reaching a local service that would go out directly.
+# So if the Ghost Tor is not running, the Ghost session has no network at all.
+# Other users are not affected: their packets leave the chain on the first rule.
+#
+# The table stands on its own next to firewalld's and Entropy Shield's; a
+# packet dropped in any base chain is dropped, so they cannot loosen it.
+set -euo pipefail
+
+TABLE="maze_ghost"
+TRANS_PORT=9140
+DNS_PORT=9153
+SOCKS_PORT=9150
+
+render() {
+    local uid="$1"
+    cat <<NFT
+table inet $TABLE {
+  chain nat_out {
+    type nat hook output priority -100; policy accept;
+    meta skuid != $uid accept
+    meta nfproto ipv4 udp dport 53 redirect to :$DNS_PORT
+    meta nfproto ipv4 tcp dport 53 redirect to :$DNS_PORT
+    meta nfproto ipv4 ip daddr 127.0.0.0/8 accept
+    meta nfproto ipv4 meta l4proto tcp redirect to :$TRANS_PORT
+  }
+  chain filter_out {
+    type filter hook output priority 0; policy accept;
+    meta skuid != $uid accept
+    # Replies on connections that already exist (a program in the Ghost
+    # session answering a connection made to it). Never a new connection out.
+    ct state established,related accept
+    meta nfproto ipv6 counter drop
+    ip daddr 127.0.0.1 tcp dport { $TRANS_PORT, $DNS_PORT, $SOCKS_PORT } accept
+    ip daddr 127.0.0.1 udp dport $DNS_PORT accept
+    counter drop
+  }
+}
+NFT
+}
+
+ghost_uid() {
+    id -u ghost 2>/dev/null
+}
+
+case "${1:-}" in
+    start)
+        uid="$(ghost_uid)" || { echo "maze-ghost: no ghost account" >&2; exit 1; }
+        nft delete table inet "$TABLE" 2>/dev/null || true
+        render "$uid" | nft -f -
+        ;;
+    stop)
+        # A Ghost session must not outlive its firewall: without the table,
+        # the account would have the open internet. End the session first.
+        if id ghost >/dev/null 2>&1; then
+            loginctl terminate-user ghost 2>/dev/null || true
+            pkill -KILL -u ghost 2>/dev/null || true
+        fi
+        nft delete table inet "$TABLE" 2>/dev/null || true
+        ;;
+    render)
+        render "${2:?uid}"
+        ;;
+    *)
+        echo "usage: $0 start|stop|render UID" >&2
+        exit 2
+        ;;
+esac

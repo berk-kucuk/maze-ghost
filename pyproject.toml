@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maze-ghost"
+version = "1.0.0"
+description = "Maze Ghost — a login that keeps nothing: memory-only home, every connection through Tor"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "berkkucukk", email = "berkkucukk@proton.me" }]
+dependencies = ["PyQt6>=6.6.0"]
+
+[project.urls]
+Homepage = "https://mazelinux.berkkucukk.com.tr"
+
+
+[tool.setuptools.packages.find]
+include = ["mazeghost*"]

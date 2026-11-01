@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Maze Ghost
+Comment=What a Ghost session is, and whether Tor is connected
+Exec=/usr/bin/maze-ghost-welcome
+Icon=maze-ghost
+Terminal=false
+X-KDE-autostart-phase=2

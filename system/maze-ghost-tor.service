@@ -1,0 +1,31 @@
+[Unit]
+Description=Maze Ghost — the Tor the Ghost session goes through
+Documentation=file:///usr/share/doc/maze-ghost/README.md
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+# Started at Ghost login, stopped at logout, by the session scripts.
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=tor
+Group=tor
+StateDirectory=maze-ghost-tor
+StateDirectoryMode=0700
+ExecStartPre=/usr/bin/tor -f /usr/share/maze-ghost/torrc --verify-config
+ExecStart=/usr/bin/tor -f /usr/share/maze-ghost/torrc
+ExecReload=/bin/kill -HUP $MAINPID
+KillSignal=SIGINT
+TimeoutSec=60
+Restart=on-failure
+LimitNOFILE=8192
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=

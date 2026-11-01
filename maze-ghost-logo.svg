@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Maze Ghost</title>
+  <!-- Maze Ghost: a ghost that fades out toward its hem — a session that is
+       there while you use it and leaves nothing behind. Black and white. -->
+  <defs>
+    <linearGradient id="mg-fade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.55" stop-color="#e8e8ee"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <radialGradient id="mg-glow" cx="512" cy="430" r="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="#000"/>
+  <circle cx="512" cy="430" r="380" fill="url(#mg-glow)"/>
+  <path d="M292 470 C292 330 390 228 512 228 C634 228 732 330 732 470 V800
+           L677 752 L622 800 L567 752 L512 800 L457 752 L402 800 L347 752 L292 800 Z"
+        fill="url(#mg-fade)"/>
+  <ellipse cx="438" cy="462" rx="34" ry="46" fill="#000"/>
+  <ellipse cx="586" cy="462" rx="34" ry="46" fill="#000"/>
+</svg>

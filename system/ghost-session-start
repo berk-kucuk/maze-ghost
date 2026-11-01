@@ -1,0 +1,66 @@
+#!/bin/bash
+# Runs as root just before the Ghost account's user manager starts — that is,
+# during login, before the desktop is launched (ExecStartPre=+ in a drop-in
+# for user@<ghost uid>.service, which logind waits for).
+#
+# It refuses the login outright when the Tor-only firewall is not in place:
+# a Ghost session that could reach the internet directly is worse than none.
+set -euo pipefail
+
+uid="${1:?uid}"
+ghost_uid="$(id -u ghost 2>/dev/null)" || exit 0
+[[ "$uid" == "$ghost_uid" ]] || exit 0          # not the Ghost account: not our business
+gid="$(id -g ghost)"
+home=/home/ghost
+persist=/var/lib/maze-ghost/persistent
+
+log() { echo "maze-ghost: $*" >&2; }
+
+if ! nft list table inet maze_ghost >/dev/null 2>&1; then
+    log "the Tor-only firewall is not loaded — refusing to start a Ghost session"
+    exit 1
+fi
+
+# A fresh, empty home in memory. Anything mounted there from a session that
+# did not end cleanly goes first.
+if mountpoint -q "$home"; then
+    umount -l "$home"
+fi
+install -d -o root -g root -m 0700 "$home"
+mount -t tmpfs -o "size=40%,mode=0700,uid=$uid,gid=$gid,nosuid,nodev" maze-ghost-home "$home"
+
+# Maze's own desktop defaults, then Ghost's additions (the welcome window).
+cp -a /etc/skel/. "$home"/ 2>/dev/null || true
+cp -a /usr/share/maze-ghost/skel/. "$home"/
+# The avatar a user picked does not belong in a Ghost session.
+rm -f "$home/.face" "$home/.face.icon"
+
+# Encrypted capsules are the one thing that may outlive a session — only
+# what the user deliberately puts in one (see README, "Keeping files").
+install -d -o "$uid" -g "$gid" -m 0700 "$persist" "$persist/maze-capsule"
+install -d -o "$uid" -g "$gid" -m 0700 "$home/.local" "$home/.local/share"
+ln -sfn "$persist/maze-capsule" "$home/.local/share/maze-capsule"
+chown -R "$uid:$gid" "$home"
+
+systemctl start --no-block maze-ghost-tor.service
+
+# A new MAC address for a new person, when Maze Cloak is running.
+cloak=/etc/maze-cloak/config.json
+if [[ -f "$cloak" ]] && systemctl is-active --quiet maze-cloak.service; then
+    python3 - "$cloak" <<'PY' || true
+import json, os, sys, tempfile, time
+path = sys.argv[1]
+with open(path) as f:
+    cfg = json.load(f)
+if cfg.get("enabled"):
+    cfg["rotate_request"] = time.time()
+    st = os.stat(path)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+    with os.fdopen(fd, "w") as f:
+        json.dump(cfg, f, indent=2)
+    os.chown(tmp, st.st_uid, st.st_gid)
+    os.chmod(tmp, st.st_mode & 0o777)
+    os.replace(tmp, path)
+PY
+fi
+exit 0

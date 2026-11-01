@@ -1,0 +1,59 @@
+#!/bin/bash
+# Runs as root after the Ghost account's user manager has stopped — after the
+# last Ghost session ended (ExecStopPost=+ in the user@<ghost uid> drop-in).
+# Also run at boot (maze-ghost-cleanup.service), for a session that never got
+# to end: a power cut, a crash.
+#
+# Every step is best-effort and independent: one that fails must not keep the
+# others from running, so there is no `set -e` here.
+set -uo pipefail
+
+uid="${1:?uid}"
+ghost_uid="$(id -u ghost 2>/dev/null)" || exit 0
+[[ "$uid" == "$ghost_uid" ]] || exit 0
+home=/home/ghost
+
+# Whatever is still running as ghost (logind's KillOnlyUsers=ghost has
+# normally done this already).
+pkill -KILL -u "$uid" 2>/dev/null
+sleep 0.3
+
+# Unlocked capsules and anything else mounted inside the session.
+findmnt -rn -o TARGET | grep -E "^($home|/run/user/$uid)(/|$)" | sort -r |
+    while read -r target; do umount -l "$target" 2>/dev/null; done
+
+# The home itself: unmounting the tmpfs is deleting it.
+if mountpoint -q "$home"; then
+    umount -l "$home"
+fi
+install -d -o root -g root -m 0700 "$home"
+
+# Files the session left in shared temporary places. /var/tmp is on disk.
+for dir in /tmp /var/tmp /dev/shm; do
+    find "$dir" -xdev -user "$uid" -delete 2>/dev/null
+done
+
+# Crash dumps are copies of memory: core.<comm>.<uid>.<boot>.<pid>.<time>.
+find /var/lib/systemd/coredump -maxdepth 1 -name "core.*.$uid.*" -delete 2>/dev/null
+
+# The session's own journal. journald keeps a separate file per user; after
+# a rotation the Ghost user's files hold only this session and can go. The
+# system journal keeps that a Ghost session took place, not what it did.
+journalctl --rotate >/dev/null 2>&1
+find /var/log/journal -name "user-$uid.journal" -delete 2>/dev/null
+find /var/log/journal -name "user-$uid@*.journal" -delete 2>/dev/null
+find /var/log/journal -name "user-$uid@*.journal~" -delete 2>/dev/null
+
+# Wi-Fi networks the Ghost user saved (they are kept system-wide, with their
+# passwords, under the user's name).
+if command -v nmcli >/dev/null 2>&1; then
+    nmcli -t -f UUID connection show 2>/dev/null | while read -r id; do
+        perms="$(nmcli -g connection.permissions connection show "$id" 2>/dev/null)"
+        if [[ "$perms" == *"user:ghost"* ]]; then
+            nmcli connection delete "$id" >/dev/null 2>&1
+        fi
+    done
+fi
+
+systemctl stop --no-block maze-ghost-tor.service 2>/dev/null
+exit 0

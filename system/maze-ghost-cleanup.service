@@ -1,0 +1,15 @@
+[Unit]
+Description=Maze Ghost — remove what a Ghost session that never ended left behind
+# A power cut or a crash ends a session without its clean-up. At boot, before
+# anyone can log in, the same clean-up runs once.
+DefaultDependencies=no
+After=local-fs.target systemd-journald.service
+Before=systemd-user-sessions.service shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'uid="$(id -u ghost 2>/dev/null)" && exec /usr/lib/maze-ghost/ghost-session-stop "$uid"; exit 0'
+
+[Install]
+WantedBy=multi-user.target
