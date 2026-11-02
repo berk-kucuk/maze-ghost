@@ -24,7 +24,7 @@ It is the closest thing to booting Tails without rebooting.
 
 ## What happens
 
-**At login** (as root, before the desktop starts — a drop-in for the Ghost account's own user manager, so no other account's login is involved):
+**At login** (as root, before the desktop starts — `maze-ghost-session@.service`, required only by the Ghost account's own user manager, so no other account's login is involved):
 
 1. The Tor-only firewall is checked. If it is not loaded, the login is refused.
 2. A fresh tmpfs is mounted on `/home/ghost` and filled from `/etc/skel` (Maze's desktop defaults).
@@ -35,11 +35,13 @@ It is the closest thing to booting Tails without rebooting.
 | | |
 |---|---|
 | TCP | redirected to the Ghost Tor's TransPort — every program, whether it knows about proxies or not |
-| DNS | to any server, redirected to the Ghost Tor's DNSPort; `.onion` names work everywhere |
+| DNS | to any server, redirected to the Ghost Tor's DNSPort; `.onion` names work everywhere. The session cannot reach systemd-resolved, which would look names up outside Tor as its own user |
 | UDP, ICMP, IPv6 | dropped |
 | Local services | closed — a Ghost program cannot reach CUPS, a local proxy that would go out directly, or another user's server; only the Tor ports |
 
-Other accounts are not affected: their packets leave the chain at its first rule. If the firewall service is ever stopped, the Ghost session is ended first.
+Other accounts are not affected: their packets leave the chain at its first rule. If the firewall service is ever stopped, the Ghost session is ended first; an upgrade swaps the rules in one step, without ending it.
+
+System services that would go online on the Ghost account's behalf — as their own user, where its firewall cannot see them — are closed to it on D-Bus: systemd-resolved, GeoClue (location from nearby Wi-Fi), PackageKit, the Flatpak system helper and fwupd.
 
 **At logout** (and once at boot, for a session that never got to end — a crash, a power cut):
 

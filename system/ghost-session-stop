@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs as root after the Ghost account's user manager has stopped — after the
-# last Ghost session ended (ExecStopPost=+ in the user@<ghost uid> drop-in).
+# last Ghost session ended (maze-ghost-session@<uid>, stopped after user@).
 # Also run at boot (maze-ghost-cleanup.service), for a session that never got
 # to end: a power cut, a crash.
 #
@@ -45,12 +45,20 @@ find /var/log/journal -name "user-$uid@*.journal" -delete 2>/dev/null
 find /var/log/journal -name "user-$uid@*.journal~" -delete 2>/dev/null
 
 # Wi-Fi networks the Ghost user saved (they are kept system-wide, with their
-# passwords, under the user's name).
-if command -v nmcli >/dev/null 2>&1; then
+# passwords, under the user's name). Through NetworkManager when it runs;
+# at boot, after a crash, it does not yet, so its saved files directly.
+if command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager.service; then
     nmcli -t -f UUID connection show 2>/dev/null | while read -r id; do
         perms="$(nmcli -g connection.permissions connection show "$id" 2>/dev/null)"
         if [[ "$perms" == *"user:ghost"* ]]; then
             nmcli connection delete "$id" >/dev/null 2>&1
+        fi
+    done
+else
+    for f in /etc/NetworkManager/system-connections/*; do
+        [[ -f "$f" ]] || continue
+        if grep -qE '^permissions=(.*;)?user:ghost(:|;|$)' "$f"; then
+            rm -f -- "$f"
         fi
     done
 fi

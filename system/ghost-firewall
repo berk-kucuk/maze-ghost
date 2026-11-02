@@ -4,6 +4,7 @@
 #   ghost-firewall start   load the rules (at boot, before anyone can log in)
 #   ghost-firewall stop    remove them
 #   ghost-firewall render UID   print the rules for UID (used by the tests)
+#   ghost-firewall load UID     load (or atomically reload) the rules for UID
 #
 # For the ghost uid, and only for it:
 #   * every DNS query, to any address, goes to the Ghost Tor's DNSPort;
@@ -54,6 +55,12 @@ table inet $TABLE {
 NFT
 }
 
+# One transaction: the old table (if any) goes and the new one comes in the
+# same step, so reloading the rules never leaves a gap.
+load() {
+    { echo "table inet $TABLE"; echo "delete table inet $TABLE"; render "$1"; } | nft -f -
+}
+
 ghost_uid() {
     id -u ghost 2>/dev/null
 }
@@ -61,8 +68,7 @@ ghost_uid() {
 case "${1:-}" in
     start)
         uid="$(ghost_uid)" || { echo "maze-ghost: no ghost account" >&2; exit 1; }
-        nft delete table inet "$TABLE" 2>/dev/null || true
-        render "$uid" | nft -f -
+        load "$uid"
         ;;
     stop)
         # A Ghost session must not outlive its firewall: without the table,
@@ -76,8 +82,11 @@ case "${1:-}" in
     render)
         render "${2:?uid}"
         ;;
+    load)
+        load "${2:?uid}"
+        ;;
     *)
-        echo "usage: $0 start|stop|render UID" >&2
+        echo "usage: $0 start|stop|render UID|load UID" >&2
         exit 2
         ;;
 esac

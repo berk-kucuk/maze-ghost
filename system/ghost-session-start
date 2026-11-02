@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs as root just before the Ghost account's user manager starts — that is,
-# during login, before the desktop is launched (ExecStartPre=+ in a drop-in
-# for user@<ghost uid>.service, which logind waits for).
+# during login, before the desktop is launched (maze-ghost-session@<uid>,
+# required by user@<ghost uid>.service, which logind waits for).
 #
 # It refuses the login outright when the Tor-only firewall is not in place:
 # a Ghost session that could reach the internet directly is worse than none.

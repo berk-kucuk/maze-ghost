@@ -35,7 +35,9 @@ class FirewallTestCase(unittest.TestCase):
         script = (
             "ip link set lo up; ip link add d0 type dummy; ip link set d0 up; "
             "ip addr add 10.255.255.1/32 dev d0; ip route add default dev d0; "
-            f"{SYSTEM}/ghost-firewall render {ghost_uid} | nft -f - && "
+            f"{SYSTEM}/ghost-firewall load {ghost_uid} && "
+            # A second load is the upgrade path: it must replace, not add.
+            f"{SYSTEM}/ghost-firewall load {ghost_uid} && "
             f"python3 {ROOT}/tests/fw_probe.py")
         r = subprocess.run(["unshare", "--user", "--map-root-user", "--net", "bash", "-c", script],
                            capture_output=True, text=True, timeout=60)
@@ -141,6 +143,71 @@ class ConfigTestCase(unittest.TestCase):
         r = subprocess.run(["node", "-e", js, str(SYSTEM / "49-maze-ghost.rules")],
                            capture_output=True, text=True)
         self.assertEqual(r.stdout.strip(), "no,nh,nh")
+
+
+class LeakTestCase(unittest.TestCase):
+    """Ways out that do not go through the firewall: system services that
+    would make the connection as their own user."""
+
+    def test_no_way_to_resolved(self):
+        """Names looked up through systemd-resolved would leave outside Tor."""
+        text = (ROOT / "packaging" / "maze-ghost.install").read_text()
+        self.assertIn("InaccessiblePaths=-/run/systemd/resolve/io.systemd.Resolve", text)
+
+    def test_home_is_mounted_outside_user_managers_namespace(self):
+        """user@ hides resolved, so it has a mount namespace of its own: a home
+        mounted by an ExecStartPre= there is seen by no one (1.0.1: every
+        Ghost login went straight back to the login screen)."""
+        text = (ROOT / "packaging" / "maze-ghost.install").read_text()
+        dropin = text[text.index("cat > \"$dropin\""):text.index("\nEOF\n")]
+        settings = "\n".join(l for l in dropin.splitlines() if not l.startswith("#"))
+        self.assertNotIn("ExecStartPre", settings)
+        self.assertNotIn("ExecStopPost", settings)
+        self.assertIn("Requires=maze-ghost-session@%i.service", dropin)
+        self.assertIn("After=maze-ghost-session@%i.service", dropin)
+        unit = (SYSTEM / "maze-ghost-session@.service").read_text()
+        for line in ("BindsTo=user@%i.service", "Before=user@%i.service",
+                     "ExecStart=/usr/lib/maze-ghost/ghost-session-start %i",
+                     "ExecStop=/usr/lib/maze-ghost/ghost-session-stop %i",
+                     "RemainAfterExit=yes"):
+            self.assertIn(line, unit)
+        for sandboxing in ("Private", "Protect", "Inaccessible", "ReadOnly", "TemporaryFileSystem"):
+            self.assertNotIn(sandboxing, unit.split("[Service]")[1])
+
+    def test_dbus_policy(self):
+        import xml.etree.ElementTree as ET
+        root = ET.parse(SYSTEM / "maze-ghost-dbus.conf").getroot()
+        policy = root.find("policy")
+        self.assertEqual(policy.get("user"), "ghost")
+        denied = {d.get("send_destination") for d in policy.findall("deny")}
+        for name in ("org.freedesktop.resolve1", "org.freedesktop.GeoClue2",
+                     "org.freedesktop.PackageKit"):
+            self.assertIn(name, denied)
+        self.assertIsNone(policy.find("allow"))
+
+    def test_upgrade_never_ends_a_session(self):
+        """Restarting the firewall service would end a running Ghost session."""
+        text = (ROOT / "packaging" / "maze-ghost.install").read_text()
+        upgrade = text[text.index("post_upgrade()"):text.index("pre_remove()")]
+        self.assertNotIn("restart maze-ghost-firewall", upgrade)
+        self.assertIn("ghost-firewall start", upgrade)
+
+    def test_wifi_files_of_ghost_only(self):
+        """At boot NetworkManager is not running yet: the saved files go."""
+        import re
+        import tempfile
+        text = (SYSTEM / "ghost-session-stop").read_text()
+        pattern = re.search(r"grep -qE '([^']+)'", text).group(1)
+        with tempfile.TemporaryDirectory() as d:
+            cases = {"ghost.nmconnection": "permissions=user:ghost;\n",
+                     "both.nmconnection": "permissions=user:berk;user:ghost;\n",
+                     "ghostly.nmconnection": "permissions=user:ghostly;\n",
+                     "shared.nmconnection": "permissions=\n"}
+            for name, body in cases.items():
+                Path(d, name).write_text("[connection]\n" + body)
+            hit = {name for name in cases
+                   if subprocess.run(["grep", "-qE", pattern, str(Path(d, name))]).returncode == 0}
+        self.assertEqual(hit, {"ghost.nmconnection", "both.nmconnection"})
 
 
 class StatusTestCase(unittest.TestCase):

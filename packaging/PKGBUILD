@@ -4,7 +4,7 @@
 # `maze-ghost-$pkgver.tar.gz` next to this file before invoking makepkg.
 
 pkgname=maze-ghost
-pkgver=1.0.0
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="Maze Ghost — a login that keeps nothing: memory-only home, every connection through Tor"
 arch=('any')
@@ -50,13 +50,16 @@ LAUNCHER
         "$pkgdir/usr/lib/maze-ghost/"
     install -dm755 "$pkgdir/usr/lib/systemd/system"
     install -m644 system/maze-ghost-firewall.service system/maze-ghost-cleanup.service \
-        system/maze-ghost-tor.service "$pkgdir/usr/lib/systemd/system/"
+        system/maze-ghost-tor.service system/maze-ghost-session@.service \
+        "$pkgdir/usr/lib/systemd/system/"
     install -Dm644 system/50-maze-ghost-logind.conf \
         "$pkgdir/usr/lib/systemd/logind.conf.d/50-maze-ghost.conf"
     install -Dm644 system/50-maze-ghost-limits.conf \
         "$pkgdir/etc/security/limits.d/50-maze-ghost.conf"
     install -Dm644 system/49-maze-ghost.rules \
         "$pkgdir/usr/share/polkit-1/rules.d/49-maze-ghost.rules"
+    install -Dm644 system/maze-ghost-dbus.conf \
+        "$pkgdir/usr/share/dbus-1/system.d/maze-ghost.conf"
     install -Dm644 system/torrc "$pkgdir/usr/share/maze-ghost/torrc"
     install -dm755 "$pkgdir/etc/maze-ghost/torrc.d"
 

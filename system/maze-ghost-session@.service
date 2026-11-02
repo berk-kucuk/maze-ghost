@@ -1,0 +1,17 @@
+[Unit]
+Description=Maze Ghost — the Ghost session's memory-only home and Tor (uid %i)
+Documentation=file:///usr/share/doc/maze-ghost/README.md
+# Pulled in by the Ghost account's user manager (Requires= in its drop-in),
+# started before it and stopped after it. A unit of its own, without any
+# sandboxing, on purpose: the home it mounts must land in the system's mount
+# namespace, where the desktop session can see it — user@ has a namespace of
+# its own (it hides systemd-resolved), and a mount made inside it would vanish.
+BindsTo=user@%i.service
+Before=user@%i.service
+After=user-runtime-dir@%i.service maze-ghost-firewall.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/maze-ghost/ghost-session-start %i
+ExecStop=/usr/lib/maze-ghost/ghost-session-stop %i
