@@ -4,7 +4,7 @@
 # `maze-ghost-$pkgver.tar.gz` next to this file before invoking makepkg.
 
 pkgname=maze-ghost
-pkgver=1.0.2
+pkgver=1.0.3
 pkgrel=1
 pkgdesc="Maze Ghost — a login that keeps nothing: memory-only home, every connection through Tor"
 arch=('any')

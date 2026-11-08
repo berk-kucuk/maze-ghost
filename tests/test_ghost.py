@@ -57,11 +57,41 @@ class FirewallTestCase(unittest.TestCase):
         self.assertIn("tcp 127.0.0.1:631     -> connected", out)
         self.assertIn("tor saw: [] dns queries: 0", out, "nothing of theirs is redirected")
 
+    @unittest.skipUnless(shutil.which("wg"), "wireguard-tools missing")
+    def test_packets_without_an_owner_are_untouched(self):
+        """Kernel WireGuard sends its encapsulated packets from a socket no uid
+        owns, so "meta skuid" never matches them. They must not be caught by
+        the Ghost chains, or nobody's kernel WireGuard works."""
+        script = (
+            "ip link set lo up; "
+            f"{SYSTEM}/ghost-firewall load 1001 && "
+            "python3 -c '\n"
+            "import socket\n"
+            "u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n"
+            "u.bind((\"127.0.0.1\", 51999)); u.settimeout(4)\n"
+            "try: print(\"wg handshake bytes:\", len(u.recvfrom(2048)[0]))\n"
+            "except OSError: print(\"wg handshake bytes: 0\")\n"
+            "' & sleep 0.3; "
+            "ip link add wg0 type wireguard && "
+            "wg set wg0 private-key <(wg genkey) peer $(wg genkey | wg pubkey) "
+            "endpoint 127.0.0.1:51999 allowed-ips 10.9.0.2/32 && "
+            "ip addr add 10.9.0.1/24 dev wg0 && ip link set wg0 up && "
+            "{ ping -c1 -W1 10.9.0.2 >/dev/null 2>&1; wait; }")
+        r = subprocess.run(["unshare", "--user", "--map-root-user", "--net", "bash", "-c", script],
+                           capture_output=True, text=True, timeout=60)
+        out = r.stdout + r.stderr
+        if "wg handshake bytes:" not in out:
+            self.skipTest(f"no kernel WireGuard in a network namespace: {out.strip()}")
+        self.assertIn("wg handshake bytes: 148", out)
+
     def test_rules_parse(self):
         r = subprocess.run([str(SYSTEM / "ghost-firewall"), "render", "1001"],
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0)
-        self.assertIn("meta skuid != 1001 accept", r.stdout)
+        self.assertIn("meta skuid 1001 jump ghost_filter", r.stdout)
+        self.assertIn("meta skuid 1001 jump ghost_nat", r.stdout)
+        # "!= uid accept" lets packets with no owner fall through to the drop.
+        self.assertNotIn("meta skuid !=", r.stdout)
 
 
 class SessionScriptTestCase(unittest.TestCase):

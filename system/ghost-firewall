@@ -17,7 +17,12 @@
 # Ghost programs cannot open new loopback connections other than to Tor —
 # which also rules out reaching a local service that would go out directly.
 # So if the Ghost Tor is not running, the Ghost session has no network at all.
-# Other users are not affected: their packets leave the chain on the first rule.
+# Other users are not affected: only packets owned by the ghost uid jump into
+# the ghost_* chains. Packets with no owning socket (kernel WireGuard
+# encapsulation, kernel-generated RST/ICMP) never match "meta skuid", so they
+# must not be filtered by a "!= uid accept" rule: they would fall through to the
+# final drop. A Ghost program's own packets always carry its uid, including the
+# inner packets it sends into another user's tunnel.
 #
 # The table stands on its own next to firewalld's and Entropy Shield's; a
 # packet dropped in any base chain is dropped, so they cannot loosen it.
@@ -34,7 +39,9 @@ render() {
 table inet $TABLE {
   chain nat_out {
     type nat hook output priority -100; policy accept;
-    meta skuid != $uid accept
+    meta skuid $uid jump ghost_nat
+  }
+  chain ghost_nat {
     meta nfproto ipv4 udp dport 53 redirect to :$DNS_PORT
     meta nfproto ipv4 tcp dport 53 redirect to :$DNS_PORT
     meta nfproto ipv4 ip daddr 127.0.0.0/8 accept
@@ -42,7 +49,9 @@ table inet $TABLE {
   }
   chain filter_out {
     type filter hook output priority 0; policy accept;
-    meta skuid != $uid accept
+    meta skuid $uid jump ghost_filter
+  }
+  chain ghost_filter {
     # Replies on connections that already exist (a program in the Ghost
     # session answering a connection made to it). Never a new connection out.
     ct state established,related accept
