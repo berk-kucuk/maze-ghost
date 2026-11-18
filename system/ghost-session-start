@@ -21,8 +21,20 @@ if ! nft list table inet maze_ghost >/dev/null 2>&1; then
     exit 1
 fi
 
+# A session must end with its logout: no lingering user manager (it would
+# keep the home and its programs across logins). polkit refuses it to Ghost;
+# this catches one set any other way.
+loginctl disable-linger ghost 2>/dev/null || true
+
 # A fresh, empty home in memory. Anything mounted there from a session that
 # did not end cleanly goes first.
+#
+# (audit GH4) Root acts on "$home" here without a symlink check, and that is
+# safe because of where it is: /home/ghost is created by the package as a
+# root-owned directory inside /home, which belongs to root and is not
+# writable by Ghost — so Ghost cannot replace /home/ghost with a link. Should
+# /home ever be made writable by other accounts, this needs the same parent
+# check as $persist below.
 if mountpoint -q "$home"; then
     umount -l "$home"
 fi
@@ -37,24 +49,82 @@ rm -f "$home/.face" "$home/.face.icon"
 
 # Encrypted capsules are the one thing that may outlive a session — only
 # what the user deliberately puts in one (see README, "Keeping files").
-install -d -o "$uid" -g "$gid" -m 0700 "$persist" "$persist/maze-capsule"
+#
+# SECURITY: everything INSIDE $persist belongs to the Ghost account and was
+# left there by an earlier Ghost session, which anyone can open (no password).
+# Root must never create, chown or chmod a path in there: `install -d` follows
+# a symlink and changes its TARGET, so a "maze-capsule" pointing at
+# /etc/sudoers.d made /etc/sudoers.d Ghost's — a way from Ghost to root.
+# Root only touches $persist itself, and only after checking that its parent
+# is root's (so Ghost cannot have swapped $persist for a link); what is inside
+# is made by the Ghost account itself, with its own rights and no more.
+persist_ok=0
+persist_parent="${persist%/*}"
+if [[ -d "$persist_parent" && ! -L "$persist_parent" ]] \
+   && [[ "$(stat -c '%u' "$persist_parent")" == 0 ]] \
+   && (( ( 8#$(stat -c '%a' "$persist_parent") & 8#022 ) == 0 )); then
+    if [[ ! -e "$persist" && ! -L "$persist" ]]; then
+        install -d -o "$uid" -g "$gid" -m 0700 "$persist"
+        persist_ok=1
+    elif [[ -d "$persist" && ! -L "$persist" ]]; then
+        chown -h "$uid:$gid" "$persist"
+        chmod 0700 "$persist"
+        persist_ok=1
+    else
+        log "$persist is not a directory — capsules will not be kept this session"
+    fi
+else
+    log "$persist_parent is not a root-owned, root-only-writable directory — capsules will not be kept this session"
+fi
+if (( persist_ok )); then
+    # As the Ghost account, without PAM (runuser would open a session and
+    # start this very user manager again) and without root's groups.
+    if ! setpriv --reuid="$uid" --regid="$gid" --clear-groups --reset-env \
+            install -d -m 0700 "$persist/maze-capsule"; then
+        log "could not prepare $persist/maze-capsule — capsules will not be kept this session"
+        persist_ok=0
+    fi
+fi
+
+# $home is the tmpfs mounted above, filled only from root's own skeleton
+# files: nothing in it came from a Ghost session.
 install -d -o "$uid" -g "$gid" -m 0700 "$home/.local" "$home/.local/share"
-ln -sfn "$persist/maze-capsule" "$home/.local/share/maze-capsule"
+if (( persist_ok )); then
+    ln -sfn "$persist/maze-capsule" "$home/.local/share/maze-capsule"
+fi
 chown -R "$uid:$gid" "$home"
+# `cp -a /etc/skel/. "$home"/` above copies the mode of /etc/skel itself (0755)
+# onto the home, undoing the tmpfs's mode=0700: every local account could
+# read the Ghost session's files. Put it back.
+chmod 0700 "$home"
 
 systemctl start --no-block maze-ghost-tor.service
+
+# SDDM has just recorded Ghost as the account to preselect; hand the login
+# screen back to the machine's own account before this session ends.
+/usr/lib/maze-ghost/ghost-login-screen || true
 
 # A new MAC address for a new person, when Maze Cloak is running.
 cloak=/etc/maze-cloak/config.json
 if [[ -f "$cloak" ]] && systemctl is-active --quiet maze-cloak.service; then
     python3 - "$cloak" <<'PY' || true
-import json, os, sys, tempfile, time
+import json, os, stat, sys, tempfile, time
 path = sys.argv[1]
-with open(path) as f:
+# Root reads a file in a directory the maze group can write to (audit MC1):
+# never through a link a group member put there, and only a file root owns.
+try:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+except OSError:                        # a link, or gone: leave it alone
+    sys.exit(0)
+st = os.fstat(fd)
+if not stat.S_ISREG(st.st_mode) or st.st_uid != 0 or st.st_size > 1 << 20:
+    sys.exit(0)
+with os.fdopen(fd) as f:
     cfg = json.load(f)
 if cfg.get("enabled"):
     cfg["rotate_request"] = time.time()
-    st = os.stat(path)
+    # Owner and mode from the file checked above (st), not a fresh stat of
+    # the path, which would follow a link swapped in since.
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
     with os.fdopen(fd, "w") as f:
         json.dump(cfg, f, indent=2)

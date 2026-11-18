@@ -44,6 +44,23 @@ After=maze-ghost-session@%i.service
 # user, where the firewall cannot see them. Without it glibc falls back to
 # DNS packets, which the firewall sends to the Ghost Tor's DNSPort.
 InaccessiblePaths=-/run/systemd/resolve/io.systemd.Resolve
+InaccessiblePaths=-/run/systemd/resolve/io.systemd.Resolve.Monitor
+# The firewall filters network packets by owner; a UNIX socket is not a
+# network packet. These are the local sockets of services that would go out
+# (or let a guest steer the machine) as their own user: mDNS, printing (whose
+# job history also stays on disk), containers and VMs with their own network,
+# VPN daemons, the system Tor, Entropy Shield. Hidden, as resolved is.
+InaccessiblePaths=-/run/avahi-daemon/socket
+InaccessiblePaths=-/run/cups/cups.sock
+InaccessiblePaths=-/run/docker.sock
+InaccessiblePaths=-/run/podman
+InaccessiblePaths=-/run/containerd
+InaccessiblePaths=-/run/libvirt
+InaccessiblePaths=-/run/snapd.socket
+InaccessiblePaths=-/run/snapd-snap.socket
+InaccessiblePaths=-/run/mullvad-vpn
+InaccessiblePaths=-/run/tor
+InaccessiblePaths=-/run/entropy-shield
 EOF
 }
 

@@ -9,7 +9,12 @@ AvoidDiskWrites 1
 # The firewall sends the Ghost account's TCP here, its DNS to the DNSPort.
 TransPort 127.0.0.1:9140 IsolateClientAddr IsolateDestAddr IsolateDestPort
 DNSPort 127.0.0.1:9153
-SocksPort 127.0.0.1:9150 IsolateDestAddr IsolateDestPort
+# Circuits are kept apart per destination, and on the SOCKS port also per
+# SOCKS username/password: Tor Browser sends a different one per site, so
+# its tabs never share a circuit (IsolateSOCKSAuth is Tor's default; spelled
+# out so a later edit does not lose it, audit GH6). On the TransPort every
+# program arrives from 127.0.0.1, so there only the destination separates.
+SocksPort 127.0.0.1:9150 IsolateSOCKSAuth IsolateDestAddr IsolateDestPort
 
 # Names resolve to placeholder addresses that Tor maps back, so .onion works
 # for every program, not only for browsers that speak SOCKS.

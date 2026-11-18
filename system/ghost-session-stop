@@ -33,6 +33,17 @@ for dir in /tmp /var/tmp /dev/shm; do
     find "$dir" -xdev -user "$uid" -delete 2>/dev/null
 done
 
+# Things a session could leave scheduled to run after it (audit GH5): a
+# crontab, at jobs, and lingering (polkit refuses it to Ghost now, but a
+# setting from before that, or set by an admin, must not survive either).
+crontab -u ghost -r 2>/dev/null
+rm -f /var/spool/cron/ghost /var/spool/cron/crontabs/ghost 2>/dev/null
+if command -v atq >/dev/null 2>&1; then
+    atq 2>/dev/null | awk '$NF == "ghost" {print $1}' | xargs -r atrm 2>/dev/null
+fi
+loginctl disable-linger ghost 2>/dev/null
+rm -f /var/lib/systemd/linger/ghost 2>/dev/null
+
 # Crash dumps are copies of memory: core.<comm>.<uid>.<boot>.<pid>.<time>.
 find /var/lib/systemd/coredump -maxdepth 1 -name "core.*.$uid.*" -delete 2>/dev/null
 
@@ -62,6 +73,10 @@ else
         fi
     done
 fi
+
+# The login screen must not preselect Ghost (see ghost-login-screen). Already
+# done at login; again here for a file left behind by an older version.
+/usr/lib/maze-ghost/ghost-login-screen
 
 systemctl stop --no-block maze-ghost-tor.service 2>/dev/null
 exit 0

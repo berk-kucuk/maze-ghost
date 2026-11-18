@@ -5,7 +5,7 @@
 
 pkgname=maze-ghost
 pkgver=1.0.3
-pkgrel=1
+pkgrel=2
 pkgdesc="Maze Ghost — a login that keeps nothing: memory-only home, every connection through Tor"
 arch=('any')
 url="https://mazelinux.berkkucukk.com.tr"
@@ -47,6 +47,7 @@ LAUNCHER
     # The session machinery (run as root by systemd, never by the user).
     install -dm755 "$pkgdir/usr/lib/maze-ghost"
     install -m755 system/ghost-firewall system/ghost-session-start system/ghost-session-stop \
+        system/ghost-login-screen \
         "$pkgdir/usr/lib/maze-ghost/"
     install -dm755 "$pkgdir/usr/lib/systemd/system"
     install -m644 system/maze-ghost-firewall.service system/maze-ghost-cleanup.service \

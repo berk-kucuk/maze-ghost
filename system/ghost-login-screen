@@ -1,0 +1,30 @@
+#!/bin/bash
+# Keeps the Ghost account from becoming the login screen's default.
+#
+# SDDM remembers the last account that logged in and preselects it. After one
+# Ghost session the passwordless Ghost account would come up first at every
+# login screen, as if it were the machine's own user — and the file would keep
+# a note that Ghost had been used. This hands the login screen back to the
+# machine's own account: the regular one with the lowest uid, which is the one
+# the installer made. With none, SDDM is left to choose.
+#
+# Run as root by ghost-session-start (SDDM writes the file when the password
+# check passes, before the session starts — so the greeter shown after the
+# Ghost logout already preselects the right account) and by
+# ghost-session-stop (at logout and at boot, for a file left behind).
+#
+#   ghost-login-screen [state.conf] [passwd]
+set -uo pipefail
+
+state="${1:-/var/lib/sddm/state.conf}"
+passwd="${2:-/etc/passwd}"
+
+grep -qx 'User=ghost' "$state" 2>/dev/null || exit 0
+owner="$(awk -F: '$3>=1000 && $3<60000 && $1!="ghost" && $7!~/(nologin|false)$/ {print $3, $1}' \
+    "$passwd" | sort -n | head -n 1 | cut -d' ' -f2)"
+if [[ -n "$owner" ]]; then
+    sed -i "/^\[Last\]/,/^\[/ s/^User=ghost\$/User=$owner/" "$state"
+else
+    sed -i '/^\[Last\]/,/^\[/ {/^User=ghost$/d}' "$state"
+fi
+exit 0

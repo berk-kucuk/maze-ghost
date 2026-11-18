@@ -41,7 +41,9 @@ It is the closest thing to booting Tails without rebooting.
 
 Other accounts are not affected: their packets leave the chain at its first rule. If the firewall service is ever stopped, the Ghost session is ended first; an upgrade swaps the rules in one step, without ending it.
 
-System services that would go online on the Ghost account's behalf — as their own user, where its firewall cannot see them — are closed to it on D-Bus: systemd-resolved, GeoClue (location from nearby Wi-Fi), PackageKit, the Flatpak system helper and fwupd.
+System services that would go online on the Ghost account's behalf — as their own user, where its firewall cannot see them — are closed to it on D-Bus: systemd-resolved, GeoClue (location from nearby Wi-Fi), PackageKit, the Flatpak system helper, fwupd, Avahi (mDNS), ModemManager (SMS, calls and location over a cellular modem), timesyncd/timedated, BlueZ pairing, wpa_supplicant and the printer-setup helper. polkit also refuses the Ghost account a hotspot, system-wide network connections, DNS and hostname changes, the hardware serial and product UUID, and changes to the clock, time zone and locale that would outlive the session. Ghost may still join a Wi-Fi network of its own; it is removed at logout.
+
+The firewall filters network packets by owner; a UNIX socket is not a network packet. The local sockets of services that would go out, or let a guest steer the machine, as their own user are hidden from the Ghost user manager the same way systemd-resolved is: printing (CUPS — its job history would also stay on disk), Avahi, Docker/Podman/containerd, libvirt, snapd, the Mullvad daemon, the system Tor and Entropy Shield. A socket of some other service not on this list is not covered — check before installing such a service on a machine that offers Ghost.
 
 **At logout** (and once at boot, for a session that never got to end — a crash, a power cut):
 
